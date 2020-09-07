@@ -128,7 +128,12 @@ namespace Unity.MLAgents.Sensors
         /// <returns name="texture2D">Texture2D to render to.</returns>
         public static Texture2D ObservationToTexture(Camera obsCamera, int width, int height)
         {
-            var texture2D = new Texture2D(width, height, TextureFormat.RGB24, false);
+            Texture2D texture2D;
+            if (CompressionType == SensorCompressionType.PNG)
+                texture2D = new Texture2D(width, height, TextureFormat.RGB24, false);
+            else
+                texture2D = new Texture2D(width, height, TextureFormat.RGBA32, false);
+
             var oldRec = obsCamera.rect;
             obsCamera.rect = new Rect(0f, 0f, 1f, 1f);
             var depth = 24;
