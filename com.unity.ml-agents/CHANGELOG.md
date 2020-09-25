@@ -7,21 +7,72 @@ and this project adheres to
 [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Major Changes
+#### com.unity.ml-agents (C#)
+#### ml-agents / ml-agents-envs / gym-unity (Python)
+ - Added the Random Network Distillation (RND) intrinsic reward signal to the Pytorch
+ trainers. To use RND, add a `rnd` section to the `reward_signals` section of your
+ yaml configuration file. [More information here](https://github.com/Unity-Technologies/ml-agents/blob/master/docs/Training-Configuration-File.md#rnd-intrinsic-reward)
 
+### Minor Changes
+#### com.unity.ml-agents (C#)
+#### ml-agents / ml-agents-envs / gym-unity (Python)
+
+### Bug Fixes
+#### com.unity.ml-agents (C#)
+#### ml-agents / ml-agents-envs / gym-unity (Python)
+
+
+## [1.4.0-preview] - 2020-09-16
 ### Major Changes
 #### com.unity.ml-agents (C#)
 #### ml-agents / ml-agents-envs / gym-unity (Python)
 
 ### Minor Changes
 #### com.unity.ml-agents (C#)
-- Update Barracuda to 1.0.2.
-- Enabled C# formatting using `dotnet-format`.
+- The `IActuator` interface and `ActuatorComponent` abstract class were added.
+These are analogous to `ISensor` and `SensorComponent`, but for applying actions
+for an Agent. They allow you to control the action space more programmatically
+than defining the actions in the Agent's Behavior Parameters. See
+[BasicActuatorComponent.cs](https://github.com/Unity-Technologies/ml-agents/blob/release_7_docs/Project/Assets/ML-Agents/Examples/Basic/Scripts/BasicActuatorComponent.cs)
+ for an example of how to use them. (#4297, #4315)
+- Update Barracuda to 1.1.1-preview (#4482)
+- Enabled C# formatting using `dotnet-format`. (#4362)
+- GridSensor was added to the `com.unity.ml-agents.extensions` package. Thank you
+to Jaden Travnik from Eidos Montreal for the contribution! (#4399)
+- Added `Agent.EpisodeInterrupted()`, which can be used to reset the agent when
+it has reached a user-determined maximum number of steps. This behaves similarly
+to `Agent.EndEpsiode()` but has a slightly different effect on training (#4453).
 #### ml-agents / ml-agents-envs / gym-unity (Python)
+- Experimental PyTorch support has been added. Use `--torch` when running `mlagents-learn`, or add
+`framework: pytorch` to your trainer configuration (under the behavior name) to enable it.
+Note that PyTorch 1.6.0 or greater should be installed to use this feature; see
+[the PyTorch website](https://pytorch.org/) for installation instructions and
+[the relevant ML-Agents docs](https://github.com/Unity-Technologies/ml-agents/blob/release_7_docs/docs/Training-ML-Agents.md#using-pytorch-experimental) for usage. (#4335)
+- The minimum supported version of TensorFlow was increased to 1.14.0. (#4411)
+- Compressed visual observations with >3 channels are now supported. In
+`ISensor.GetCompressedObservation()`, this can be done by writing 3 channels at a
+time to a PNG and concatenating the resulting bytes. (#4399)
+- The Communication API was changed to 1.1.0 to indicate support for concatenated PNGs
+(see above). Newer versions of the package that wish to make use of this will also need
+a compatible version of the trainer. (#4462)
+- A CNN (`vis_encode_type: match3`) for smaller grids, e.g. board games, has been added.
+(#4434)
+- You can now again specify a default configuration for your behaviors. Specify `default_settings` in
+your trainer configuration to do so. (#4448)
+- Improved the executable detection logic for environments on Windows. (#4485)
 
 ### Bug Fixes
 #### com.unity.ml-agents (C#)
-- The package dependencies were updated to include the built-in packages that are used also. (#4384)
+- Previously, `com.unity.ml-agents` was not declaring built-in packages as
+dependencies in its package.json. The relevant dependencies are now listed. (#4384)
+- Agents no longer try to send observations when they become disabled if the
+Academy has been shut down. (#4489)
 #### ml-agents / ml-agents-envs / gym-unity (Python)
+- Fixed the sample code in the custom SideChannel example. (#4466)
+- A bug in the observation normalizer that would cause rewards to decrease
+when using `--resume` was fixed. (#4463)
+- Fixed a bug in exporting Pytorch models when using multiple discrete actions. (#4491)
 
 ## [1.3.0-preview] - 2020-08-12
 
@@ -32,10 +83,6 @@ and this project adheres to
 - The interaction between EnvManager and TrainerController was changed; EnvManager.advance() was split into to stages,
 and TrainerController now uses the results from the first stage to handle new behavior names. This change speeds up
 Python training by approximately 5-10%. (#4259)
-- Experimental PyTorch support has been added. Use `--torch` when running `mlagents-learn`, or add
-`framework: pytorch` to your trainer configuration (under the behavior name) to enable it.
-Note that PyTorch 1.6.0 or greater should be installed to use this feature; see
-[the PyTorch website](https://pytorch.org/) for installation instructions. (#4335)
 
 ### Minor Changes
 #### com.unity.ml-agents (C#)

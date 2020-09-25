@@ -1,8 +1,7 @@
 from typing import Callable, List, Dict, Tuple, Optional
 import abc
 
-import torch
-from torch import nn
+from mlagents.torch_utils import torch, nn
 
 from mlagents_envs.base_env import ActionType
 from mlagents.trainers.torch.distributions import (
@@ -13,7 +12,8 @@ from mlagents.trainers.torch.distributions import (
 from mlagents.trainers.settings import NetworkSettings
 from mlagents.trainers.torch.utils import ModelUtils
 from mlagents.trainers.torch.decoders import ValueHeads
-from mlagents.trainers.torch.layers import LSTM
+from mlagents.trainers.torch.layers import LSTM, LinearEncoder
+from mlagents.trainers.torch.model_serialization import exporting_to_onnx
 
 ActivationFunction = Callable[[torch.Tensor], torch.Tensor]
 EncoderFunction = Callable[
@@ -40,13 +40,15 @@ class NetworkBody(nn.Module):
             else 0
         )
 
-        self.visual_encoders, self.vector_encoders = ModelUtils.create_encoders(
+        self.visual_processors, self.vector_processors, encoder_input_size = ModelUtils.create_input_processors(
             observation_shapes,
             self.h_size,
-            network_settings.num_layers,
             network_settings.vis_encode_type,
-            unnormalized_inputs=encoded_act_size,
             normalize=self.normalize,
+        )
+        total_enc_size = encoder_input_size + encoded_act_size
+        self.linear_encoder = LinearEncoder(
+            total_enc_size, network_settings.num_layers, self.h_size
         )
 
         if self.use_lstm:
@@ -55,12 +57,12 @@ class NetworkBody(nn.Module):
             self.lstm = None  # type: ignore
 
     def update_normalization(self, vec_inputs: List[torch.Tensor]) -> None:
-        for vec_input, vec_enc in zip(vec_inputs, self.vector_encoders):
+        for vec_input, vec_enc in zip(vec_inputs, self.vector_processors):
             vec_enc.update_normalization(vec_input)
 
     def copy_normalization(self, other_network: "NetworkBody") -> None:
         if self.normalize:
-            for n1, n2 in zip(self.vector_encoders, other_network.vector_encoders):
+            for n1, n2 in zip(self.vector_processors, other_network.vector_processors):
                 n1.copy_normalization(n2)
 
     @property
@@ -76,29 +78,27 @@ class NetworkBody(nn.Module):
         sequence_length: int = 1,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         encodes = []
-        for idx, encoder in enumerate(self.vector_encoders):
+        for idx, processor in enumerate(self.vector_processors):
             vec_input = vec_inputs[idx]
-            if actions is not None:
-                hidden = encoder(vec_input, actions)
-            else:
-                hidden = encoder(vec_input)
-            encodes.append(hidden)
+            processed_vec = processor(vec_input)
+            encodes.append(processed_vec)
 
-        for idx, encoder in enumerate(self.visual_encoders):
+        for idx, processor in enumerate(self.visual_processors):
             vis_input = vis_inputs[idx]
-            if not torch.onnx.is_in_onnx_export():
+            if not exporting_to_onnx.is_exporting():
                 vis_input = vis_input.permute([0, 3, 1, 2])
-            hidden = encoder(vis_input)
-            encodes.append(hidden)
+            processed_vis = processor(vis_input)
+            encodes.append(processed_vis)
 
         if len(encodes) == 0:
             raise Exception("No valid inputs to network.")
 
         # Constants don't work in Barracuda
-        encoding = encodes[0]
-        if len(encodes) > 1:
-            for _enc in encodes[1:]:
-                encoding += _enc
+        if actions is not None:
+            inputs = torch.cat(encodes + [actions], dim=-1)
+        else:
+            inputs = torch.cat(encodes, dim=-1)
+        encoding = self.linear_encoder(inputs)
 
         if self.use_lstm:
             # Resize to (batch, sequence length, encoding size)
@@ -268,7 +268,9 @@ class SimpleActor(nn.Module, Actor):
         self.is_continuous_int = torch.nn.Parameter(
             torch.Tensor([int(act_type == ActionType.CONTINUOUS)])
         )
-        self.act_size_vector = torch.nn.Parameter(torch.Tensor(act_size))
+        self.act_size_vector = torch.nn.Parameter(
+            torch.Tensor([sum(act_size)]), requires_grad=False
+        )
         self.network_body = NetworkBody(observation_shapes, network_settings)
         if network_settings.memory is not None:
             self.encoding_size = network_settings.memory.memory_size // 2
@@ -330,12 +332,11 @@ class SimpleActor(nn.Module, Actor):
         Note: This forward() method is required for exporting to ONNX. Don't modify the inputs and outputs.
         """
         dists, _ = self.get_dists(vec_inputs, vis_inputs, masks, memories, 1)
-        action_list = self.sample_action(dists)
-        sampled_actions = torch.stack(action_list, dim=-1)
         if self.act_type == ActionType.CONTINUOUS:
-            action_out = sampled_actions
+            action_list = self.sample_action(dists)
+            action_out = torch.stack(action_list, dim=-1)
         else:
-            action_out = dists[0].all_log_prob()
+            action_out = torch.cat([dist.all_log_prob() for dist in dists], dim=1)
         return (
             action_out,
             self.version_number,
@@ -478,6 +479,10 @@ class SeparateActorCritic(SimpleActor, ActorCritic):
         else:
             mem_out = None
         return dists, value_outputs, mem_out
+
+    def update_normalization(self, vector_obs: List[torch.Tensor]) -> None:
+        super().update_normalization(vector_obs)
+        self.critic.network_body.update_normalization(vector_obs)
 
 
 class GlobalSteps(nn.Module):

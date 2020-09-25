@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Tuple, Optional
 import numpy as np
-import torch
+from mlagents.torch_utils import torch, default_device
 import copy
 
 from mlagents.trainers.action_info import ActionInfo
@@ -37,7 +37,7 @@ class TorchPolicy(Policy):
         also use a CNN to encode visual input prior to the MLP. Supports discrete and
         continuous action spaces, as well as recurrent networks.
         :param seed: Random seed.
-        :param brain: Assigned BrainParameters object.
+        :param behavior_spec: Assigned BehaviorSpec object.
         :param trainer_settings: Defined training parameters.
         :param load: Whether a pre-trained model will be loaded or a new one created.
         :param tanh_squash: Whether to use a tanh function on the continuous output,
@@ -57,8 +57,6 @@ class TorchPolicy(Policy):
             GlobalSteps()
         )  # could be much simpler if TorchPolicy is nn.Module
         self.grads = None
-
-        torch.set_default_tensor_type(torch.FloatTensor)
 
         reward_signal_configs = trainer_settings.reward_signals
         reward_signal_names = [key.value for key, _ in reward_signal_configs.items()]
@@ -85,7 +83,7 @@ class TorchPolicy(Policy):
         # m_size needed for training is determined by network, not trainer settings
         self.m_size = self.actor_critic.memory_size
 
-        self.actor_critic.to("cpu")
+        self.actor_critic.to(default_device())
 
     @property
     def export_memory_size(self) -> int:
@@ -126,15 +124,26 @@ class TorchPolicy(Policy):
         memories: Optional[torch.Tensor] = None,
         seq_len: int = 1,
         all_log_probs: bool = False,
-    ) -> Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, Dict[str, torch.Tensor], torch.Tensor
-    ]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
+        :param vec_obs: List of vector observations.
+        :param vis_obs: List of visual observations.
+        :param masks: Loss masks for RNN, else None.
+        :param memories: Input memories when using RNN, else None.
+        :param seq_len: Sequence length when using RNN.
         :param all_log_probs: Returns (for discrete actions) a tensor of log probs, one for each action.
+        :return: Tuple of actions, log probabilities (dependent on all_log_probs), entropies, and
+            output memories, all as Torch Tensors.
         """
-        dists, value_heads, memories = self.actor_critic.get_dist_and_value(
-            vec_obs, vis_obs, masks, memories, seq_len
-        )
+        if memories is None:
+            dists, memories = self.actor_critic.get_dists(
+                vec_obs, vis_obs, masks, memories, seq_len
+            )
+        else:
+            # If we're using LSTM. we need to execute the values to get the critic memories
+            dists, _, memories = self.actor_critic.get_dist_and_value(
+                vec_obs, vis_obs, masks, memories, seq_len
+            )
         action_list = self.actor_critic.sample_action(dists)
         log_probs, entropies, all_logs = ModelUtils.get_probs_and_entropy(
             action_list, dists
@@ -145,13 +154,7 @@ class TorchPolicy(Policy):
         else:
             actions = actions[:, 0, :]
 
-        return (
-            actions,
-            all_logs if all_log_probs else log_probs,
-            entropies,
-            value_heads,
-            memories,
-        )
+        return (actions, all_logs if all_log_probs else log_probs, entropies, memories)
 
     def evaluate_actions(
         self,
@@ -191,21 +194,17 @@ class TorchPolicy(Policy):
 
         run_out = {}
         with torch.no_grad():
-            action, log_probs, entropy, value_heads, memories = self.sample_actions(
+            action, log_probs, entropy, memories = self.sample_actions(
                 vec_obs, vis_obs, masks=masks, memories=memories
             )
-        run_out["action"] = action.detach().cpu().numpy()
-        run_out["pre_action"] = action.detach().cpu().numpy()
+        run_out["action"] = ModelUtils.to_numpy(action)
+        run_out["pre_action"] = ModelUtils.to_numpy(action)
         # Todo - make pre_action difference
-        run_out["log_probs"] = log_probs.detach().cpu().numpy()
-        run_out["entropy"] = entropy.detach().cpu().numpy()
-        run_out["value_heads"] = {
-            name: t.detach().cpu().numpy() for name, t in value_heads.items()
-        }
-        run_out["value"] = np.mean(list(run_out["value_heads"].values()), 0)
+        run_out["log_probs"] = ModelUtils.to_numpy(log_probs)
+        run_out["entropy"] = ModelUtils.to_numpy(entropy)
         run_out["learning_rate"] = 0.0
         if self.use_recurrent:
-            run_out["memory_out"] = memories.detach().cpu().numpy().squeeze(0)
+            run_out["memory_out"] = ModelUtils.to_numpy(memories).squeeze(0)
         return run_out
 
     def get_action(
@@ -214,7 +213,7 @@ class TorchPolicy(Policy):
         """
         Decides actions given observations information, and takes them in environment.
         :param worker_id:
-        :param decision_requests: A dictionary of brain names and BrainInfo from environment.
+        :param decision_requests: A dictionary of behavior names and DecisionSteps from environment.
         :return: an ActionInfo containing action, memories, values and an object
         to be passed to add experiences
         """

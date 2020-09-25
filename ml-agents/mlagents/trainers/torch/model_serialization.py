@@ -1,11 +1,38 @@
 import os
-import torch
+import threading
+from mlagents.torch_utils import torch
 
 from mlagents_envs.logging_util import get_logger
 from mlagents.trainers.settings import SerializationSettings
 
 
 logger = get_logger(__name__)
+
+
+class exporting_to_onnx:
+    """
+    Set this context by calling
+    ```
+    with exporting_to_onnx():
+    ```
+    Within this context, the variable exporting_to_onnx.is_exporting() will be true.
+    This implementation is thread safe.
+    """
+
+    _local_data = threading.local()
+    _local_data._is_exporting = False
+
+    def __enter__(self):
+        self._local_data._is_exporting = True
+
+    def __exit__(self, *args):
+        self._local_data._is_exporting = False
+
+    @staticmethod
+    def is_exporting():
+        if not hasattr(exporting_to_onnx._local_data, "_is_exporting"):
+            return False
+        return exporting_to_onnx._local_data._is_exporting
 
 
 class ModelSerializer:
@@ -54,7 +81,6 @@ class ModelSerializer:
         Exports a Torch model for a Policy to .onnx format for Unity embedding.
 
         :param output_filepath: file path to output the model (without file suffix)
-        :param brain_name: Brain name of brain to be trained
         """
         if not os.path.exists(output_filepath):
             os.makedirs(output_filepath)
@@ -62,13 +88,14 @@ class ModelSerializer:
         onnx_output_path = f"{output_filepath}.onnx"
         logger.info(f"Converting to {onnx_output_path}")
 
-        torch.onnx.export(
-            self.policy.actor_critic,
-            self.dummy_input,
-            onnx_output_path,
-            opset_version=SerializationSettings.onnx_opset,
-            input_names=self.input_names,
-            output_names=self.output_names,
-            dynamic_axes=self.dynamic_axes,
-        )
+        with exporting_to_onnx():
+            torch.onnx.export(
+                self.policy.actor_critic,
+                self.dummy_input,
+                onnx_output_path,
+                opset_version=SerializationSettings.onnx_opset,
+                input_names=self.input_names,
+                output_names=self.output_names,
+                dynamic_axes=self.dynamic_axes,
+            )
         logger.info(f"Exported {onnx_output_path}")
