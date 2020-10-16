@@ -234,7 +234,7 @@ namespace Unity.MLAgents.Sensors
             var width = texture.width;
             var height = texture.height;
 
-            var texturePixels = texture.GetPixels32();
+            var texturePixels = texture.GetPixels();
             // During training, we convert from Texture to PNG before sending to the trainer, which has the
             // effect of flipping the image. We need another flip here at inference time to match this.
             for (var h = height - 1; h >= 0; h--)
@@ -245,14 +245,18 @@ namespace Unity.MLAgents.Sensors
                     if (grayScale)
                     {
                         obsWriter[h, w, 0] =
-                            (currentPixel.r + currentPixel.g + currentPixel.b) / 3f / 255.0f;
+                            // (currentPixel.r + currentPixel.g + currentPixel.b) / 3f / 255.0f;
+                            (currentPixel.r + currentPixel.g + currentPixel.b) / 3f;
                     }
                     else
                     {
                         // For Color32, the r, g and b values are between 0 and 255.
-                        obsWriter[h, w, 0] = currentPixel.r / 255.0f;
-                        obsWriter[h, w, 1] = currentPixel.g / 255.0f;
-                        obsWriter[h, w, 2] = currentPixel.b / 255.0f;
+                        // obsWriter[h, w, 0] = currentPixel.r / 255.0f;
+                        // obsWriter[h, w, 1] = currentPixel.g / 255.0f;
+                        // obsWriter[h, w, 2] = currentPixel.b / 255.0f;
+                        obsWriter[h, w, 0] = currentPixel.r;
+                        obsWriter[h, w, 1] = currentPixel.g;
+                        obsWriter[h, w, 2] = currentPixel.b;
                     }
                 }
             }
