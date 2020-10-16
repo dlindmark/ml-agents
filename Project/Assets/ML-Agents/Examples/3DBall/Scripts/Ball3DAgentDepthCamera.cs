@@ -5,7 +5,7 @@ using Unity.MLAgents.Actuators;
 using Unity.MLAgents.Sensors;
 using Random = UnityEngine.Random;
 
-public class Ball3DAgent : Agent
+public class Ball3DAgentDepthCamera : Agent
 {
     [Header("Specific to Ball3D")]
     public GameObject ball;
@@ -26,9 +26,9 @@ public class Ball3DAgent : Agent
     {
         if (useVecObs)
         {
-            sensor.AddObservation(gameObject.transform.rotation.z);
-            sensor.AddObservation(gameObject.transform.rotation.x);
-            sensor.AddObservation(ball.transform.position - gameObject.transform.position);
+            // sensor.AddObservation(gameObject.transform.rotation.z);
+            // sensor.AddObservation(gameObject.transform.rotation.x);
+            // sensor.AddObservation(ball.transform.position - gameObject.transform.position);
             sensor.AddObservation(m_BallRb.velocity);
         }
     }
