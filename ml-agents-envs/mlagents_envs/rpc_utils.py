@@ -17,6 +17,8 @@ import io
 from typing import cast, List, Tuple, Union, Collection, Optional, Iterable
 from PIL import Image
 
+import cv2
+
 
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 
@@ -145,6 +147,10 @@ def observation_to_np_array(
     if obs.compression_type == COMPRESSION_TYPE_NONE:
         img = np.array(obs.float_data.data, dtype=np.float32)
         img = np.reshape(img, obs.shape)
+        # print(img, img.shape)
+        # # print(np.max(img.reshape(-1)))
+        # cv2.imshow("img", img)
+        # cv2.waitKey(1)
         return img
     else:
         img = process_pixels(obs.compressed_data, expected_channels)
